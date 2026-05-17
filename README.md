@@ -1,3 +1,49 @@
+The binary created with the source files from this repository creates input files for the Android binary **dmctl**.
+
+**dmctl** can only use input files with the configuration for one logical device. Therefore, this tool creates separate input files for each logical device..
+
+The usage for the tool is:
+
+```
+ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build # ./parse-android-dynparts                                                                                                                                        
+Usage: ./parse-android-dynparts [OPTIONS] <super_device>
+Options:
+  -s, --slot N       Slot number (0 or 1) [default: current slot]
+  -o, --outdir DIR   Output directory for dmctl config files [default: .]
+  -p, --prefix PREFIX
+                     Prefix to add to logical device names
+  -r, --rw           Create devices read-write (omit -ro flag)
+      --skip-cow     Ignore -cow partitions (cannot be mounted)
+  -h, --help         Show this help
+
+Creates one file per logical partition: <outdir>/dmctl_<name>.txt
+Usage: dmctl -f <file>
+1|ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build # 
+```
+
+The source code can be compiled in Android using the **clang19 toolchain** for Android. The **clang19 toolchain** for Android is available here:
+
+[https://github.com/bnsmb/clang19_toolchain_for_android](https://github.com/bnsmb/clang19_toolchain_for_android)
+
+Use 
+```
+git clone git@github.com:bnsmb/parse-android-dynparts-for-Android.git
+```
+to copy the source files to the phone.
+
+To compile the binary for Android, execute the instructions using **cmake** and **ninja** listed below 
+
+Then execute the script **compile_parse.sh** when in the directory **./build** to create an executable that can be used while the phone is booted into the recovery:
+```
+ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build # ldd /data/local/tmp/develop/parse-android-dynparts/build/parse-android-dynparts                                                                                 
+	linux-vdso.so.1 => [vdso] (0x70d3770000)
+	libc.so => /apex/com.android.runtime/lib64/bionic/libc.so (0x70ce297000)
+	libm.so => /apex/com.android.runtime/lib64/bionic/libm.so (0x70d0101000)
+	libdl.so => /apex/com.android.runtime/lib64/bionic/libdl.so (0x70d00f3000)
+ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build #
+```
+----
+
 Purpose
 =======
 Most devices running Android 10 and higher use Android's [Dynamic Partitions][1]
