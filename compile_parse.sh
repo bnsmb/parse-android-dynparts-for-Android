@@ -1,0 +1,5 @@
+/data/local/tmp/sysroot/usr/clang19/bin/clang++ -I/data/local/tmp/sysroot/usr/include -I/data/local/tmp/sysroot/usr/clang19/include -I/data/local/tmp/sysroot/usr/ndk/r27d/include -I/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/include/aarch64-linux-android -I/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/include --sysroot=/data/local/tmp/sysroot/usr/ndk/r27d/sysroot -O2 -g -DNDEBUG -L/data/local/tmp/sysroot/usr/lib -L/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/lib/aarch64-linux-android/31 -L/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/lib/aarch64-linux-android -B/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/lib/aarch64-linux-android/31/ --sysroot=/data/local/tmp/sysroot/usr/ndk/r27d/sysroot -lc -Xlinker --dependency-file=CMakeFiles/parse-android-dynparts.dir/link.d CMakeFiles/parse-android-dynparts.dir/main.cpp.o -o parse-android-dynparts  liblp/liblp.a  /data/local/tmp/sysroot/usr/lib/libcrypto.a \
+-nostdlib++ \
+/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/lib/aarch64-linux-android/libc++_static.a \
+/data/local/tmp/sysroot/usr/ndk/r27d/sysroot/usr/lib/aarch64-linux-android/libc++abi.a
+

@@ -1,0 +1,1 @@
+./parse-android-dynparts -s 1 -o ./slotB/ --rw  --skip-cow  /dev/block/by-name/super

@@ -15,7 +15,6 @@
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
-#include <errno.h>
 #include <liblp/liblp.h>
 
 using namespace android::fs_mgr;
@@ -147,9 +146,8 @@ int main(int argc, char** argv) {
     int file_count = 0;
     // Iterate over partitions
     for (const auto& part : metadata->partitions) {
-        // Use the raw name including slot suffix (_a, _b, etc.)
-        std::string orig_name = part.name;
-
+        std::string orig_name = GetPartitionName(part);
+        
         // Skip cow partitions if requested
         if (skip_cow && is_cow_partition(orig_name)) {
             std::cerr << "Skipping cow partition: " << orig_name << std::endl;
@@ -214,3 +212,4 @@ int main(int argc, char** argv) {
     std::cerr << "Done. " << file_count << " dmctl config file(s) written to " << outdir << std::endl;
     return 0;
 }
+

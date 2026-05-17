@@ -1,0 +1,125 @@
+/*
+ * parse-android-dynparts - Android dynamic partition parser
+ * Modified to output dmctl commands.
+ *
+ * Compile with: g++ -std=c++11 -o parse-android-dynparts main.cpp -llp
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <getopt.h>
+#include <string>
+#include <vector>
+#include <memory>
+#include <iostream>
+#include <liblp/liblp.h>
+
+using namespace android::fs_mgr;
+
+static void usage(const char* progname) {
+    fprintf(stderr,
+            "Usage: %s [OPTIONS] <super_device>\n"
+            "Options:\n"
+            "  -s, --slot N     Slot number (0 or 1) [default: current slot]\n"
+            "  -h, --help       Show this help\n"
+            "\n"
+            "Outputs dmctl commands to create logical devices for all dynamic partitions.\n"
+            "Pipe to a file and use: dmctl -f <file>\n",
+            progname);
+}
+
+int main(int argc, char** argv) {
+    int slot = -1;  // -1 = current slot
+    static struct option long_options[] = {
+        {"slot", required_argument, 0, 's'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}
+    };
+
+    int c;
+    while ((c = getopt_long(argc, argv, "s:h", long_options, nullptr)) != -1) {
+        switch (c) {
+        case 's':
+            slot = atoi(optarg);
+            break;
+        case 'h':
+            usage(argv[0]);
+            return 0;
+        default:
+            usage(argv[0]);
+            return 1;
+        }
+    }
+
+    if (optind >= argc) {
+        usage(argv[0]);
+        return 1;
+    }
+    const char* device_path = argv[optind];
+
+    // Read metadata
+    std::unique_ptr<LpMetadata> metadata;
+    if (slot < 0) {
+        metadata = ReadMetadata(device_path, slot);
+    } else {
+        metadata = ReadMetadata(device_path, static_cast<uint32_t>(slot));
+    }
+    if (!metadata) {
+        std::cerr << "Failed to read metadata from " << device_path << std::endl;
+        return 1;
+    }
+
+    // Iterate over partitions
+    for (const auto& part : metadata->partitions) {
+        // Get partition name (without slot suffix? Keep as is)
+        std::string name = GetPartitionName(part);
+        // Skip partitions that are not in the selected slot? Keep all.
+
+        // Read-only flag from attributes
+        bool read_only = (part.attributes & LP_PARTITION_ATTR_READONLY) != 0;
+
+        // Build command
+        std::string cmd = "create " + name;
+        if (read_only) {
+            cmd += " -ro";
+        }
+
+        // Collect extents in order
+        std::vector<const LpMetadataExtent*> extents;
+        for (size_t i = 0; i < part.num_extents; ++i) {
+            const auto& extent = metadata->extents[part.first_extent_index + i];
+            extents.push_back(&extent);
+        }
+        if (extents.empty()) continue;
+
+        // First extent: output as part of create line (logical start = 0)
+        const auto* first = extents[0];
+        uint64_t logical_start = 0;
+        char buf[512];
+        snprintf(buf, sizeof(buf), " linear %llu %llu %s %llu",
+                 (unsigned long long)logical_start,
+                 (unsigned long long)first->num_sectors,
+                 device_path,
+                 (unsigned long long)first->target_data);
+        cmd += buf;
+        std::cout << cmd << std::endl;
+
+        // Subsequent extents
+        logical_start += first->num_sectors;
+        for (size_t i = 1; i < extents.size(); ++i) {
+            const auto* ext = extents[i];
+            snprintf(buf, sizeof(buf), "linear %llu %llu %s %llu",
+                     (unsigned long long)logical_start,
+                     (unsigned long long)ext->num_sectors,
+                     device_path,
+                     (unsigned long long)ext->target_data);
+            std::cout << buf << std::endl;
+            logical_start += ext->num_sectors;
+        }
+        std::cout << std::endl;  // blank line separator
+    }
+
+    return 0;
+}
+
