@@ -39,7 +39,7 @@ ASUS_I006D:/ $
 ASUS_I006D:/ # mkdir -p /data/local/tmp/rw_mounted_partitions <br>
 ASUS_I006D:/ # 	<br>
 <br>
-ASUS_I006D:/ # mount_dynamic_partitions --prefix rw_ --outdir /data/local/tmp/rw_mounted_partitions --mountdir /data/local/tmp/rw_mounted_partitions --keep --skip-cow --keep --rw<br>                 
+ASUS_I006D:/ # mount_dynamic_partitions --prefix rw_ --outdir /data/local/tmp/rw_mounted_partitions --mountdir /data/local/tmp/rw_mounted_partitions --skip-cow --keep --rw<br>                 
 Auto-detected slot 1<br>
 Created: /data/local/tmp/rw_mounted_partitions/dmctl_lukspart001.txt<br>
 Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_lukspart001.txt<br>
