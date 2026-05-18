@@ -40,7 +40,6 @@ static void usage(const char* progname) {
             "      --skip-cow        Ignore -cow partitions\n"
             "      --partitions LIST Comma-separated list of partition names\n"
             "  -x, --execute         Execute dmctl for each config file\n"
-            "      --dry-run         Print actions without executing them (implies -x)\n"
             "      --delete          Delete config file after successful execution\n"
             "      --keep            Keep config file (default)\n"
             "      --mountdir DIR    Mount devices under DIR/<partname>\n"
@@ -206,7 +205,6 @@ int main(int argc, char** argv) {
     bool read_write = false;
     bool skip_cow = false;
     bool execute = false;
-    bool dry_run = false;
     bool delete_after = false;
     std::string mountdir = "";
     std::string gen_scripts_prefix = "";
@@ -222,7 +220,6 @@ int main(int argc, char** argv) {
         {"skip-cow",    no_argument,       0, 1000},
         {"partitions",  required_argument, 0, 1001},
         {"execute",     no_argument,       0, 'x'},
-        {"dry-run",     no_argument,       0, 1008},
         {"delete",      no_argument,       0, 1002},
         {"keep",        no_argument,       0, 1003},
         {"mountdir",    required_argument, 0, 1004},
@@ -244,7 +241,6 @@ int main(int argc, char** argv) {
         case 1000: skip_cow = true; break;
         case 1001: selected_partitions = parse_partition_list(optarg); break;
         case 'x': execute = true; break;
-        case 1008: dry_run = true; break;
         case 1002: delete_after = true; break;
         case 1003: break;
         case 1004: mountdir = optarg; break;
@@ -256,8 +252,6 @@ int main(int argc, char** argv) {
         default: usage(argv[0]); return 1;
         }
     }
-
-    if (dry_run) execute = true;
 
     if (list_mode && list_all_mode) {
         std::cerr << "Error: --list and --list-all are mutually exclusive." << std::endl;
@@ -326,7 +320,7 @@ int main(int argc, char** argv) {
     if (dmctl_env && dmctl_env[0] != '\0') dmctl_path = dmctl_env;
     else dmctl_path = "dmctl";
 
-    if (execute && !dry_run) {
+    if (execute) {
         std::string test_cmd = dmctl_path + " help > /dev/null 2>&1";
         if (system(test_cmd.c_str()) != 0) {
             std::cerr << "dmctl not found: " << dmctl_path << std::endl;
@@ -393,50 +387,32 @@ int main(int argc, char** argv) {
         std::cerr << "Created: " << filename << std::endl;
 
         if (execute) {
-            bool device_existed = false;
-            if (!dry_run) {
-                device_existed = device_exists(dm_name);
-            } else {
-                // In dry-run, assume device does not exist for simulation
-                device_existed = false;
-            }
-
+            bool device_existed = device_exists(dm_name);
             if (device_existed) {
                 std::cerr << "Device " << dm_name << " already exists." << std::endl;
             } else {
-                if (dry_run) {
-                    std::cerr << "DRY RUN: Would execute: " << dmctl_path << " -f " << filename << std::endl;
-                } else {
-                    std::cerr << "Executing: " << dmctl_path << " -f " << filename << std::endl;
-                    if (run_dmctl(dmctl_path, filename)) {
-                        if (!wait_for_device(dm_name)) {
-                            std::cerr << "Device " << dm_name << " did not appear after creation." << std::endl;
-                            fail_count++;
-                            continue;
-                        }
-                    } else {
-                        std::cerr << "Failed to create device for " << orig_name << std::endl;
+                std::cerr << "Executing: " << dmctl_path << " -f " << filename << std::endl;
+                if (run_dmctl(dmctl_path, filename)) {
+                    if (!wait_for_device(dm_name)) {
+                        std::cerr << "Device " << dm_name << " did not appear after creation." << std::endl;
                         fail_count++;
                         continue;
                     }
+                } else {
+                    std::cerr << "Failed to create device for " << orig_name << std::endl;
+                    fail_count++;
+                    continue;
                 }
             }
 
-            // Record device for removal script (only if it didn't exist before, and dry-run still records)
+            // Record device for removal script
             if (!device_existed) created_devices.push_back(dm_name);
 
             success_count++;
 
             if (!mountdir.empty()) {
                 std::string mount_point = mountdir + "/" + orig_name;
-                bool mount_success = false;
-                if (dry_run) {
-                    std::cerr << "DRY RUN: Would mount " << dm_name << " on " << mount_point << " (" << (read_only ? "ro" : "rw") << ")" << std::endl;
-                    mount_success = true; // simulate success for script generation
-                } else {
-                    mount_success = mount_device(dm_name, mount_point, read_only);
-                }
-                if (mount_success) {
+                if (mount_device(dm_name, mount_point, read_only)) {
                     mounted_points.push_back(mount_point);
                 } else {
                     fail_count++;
@@ -444,20 +420,18 @@ int main(int argc, char** argv) {
                 }
             }
 
-            if (!dry_run && delete_after) {
+            if (delete_after) {
                 if (unlink(filename.c_str()) == 0)
                     std::cerr << "Deleted: " << filename << std::endl;
                 else
                     std::cerr << "Warning: Could not delete " << filename << std::endl;
-            } else if (dry_run && delete_after) {
-                std::cerr << "DRY RUN: Would delete config file " << filename << std::endl;
             }
 
             std::cout << std::endl;
         }
     }
 
-    // Generate unmount and remove scripts if requested (even in dry-run)
+    // Generate unmount and remove scripts if requested
     if (!gen_scripts_prefix.empty()) {
         std::string umount_script = gen_scripts_prefix + "_umount.sh";
         std::string remove_script = gen_scripts_prefix + "_remove.sh";
@@ -471,7 +445,7 @@ int main(int argc, char** argv) {
                 umount_fs << "rmdir " << mp << " 2>/dev/null\n";
             }
             umount_fs.close();
-            if (!dry_run) chmod(umount_script.c_str(), 0755);
+            chmod(umount_script.c_str(), 0755);
             std::cerr << "Generated unmount script: " << umount_script << std::endl;
         } else {
             std::cerr << "Error: Could not create " << umount_script << std::endl;
@@ -485,20 +459,16 @@ int main(int argc, char** argv) {
                 remove_fs << dmctl_path << " remove " << dev << " 2>/dev/null\n";
             }
             remove_fs.close();
-            if (!dry_run) chmod(remove_script.c_str(), 0755);
+            chmod(remove_script.c_str(), 0755);
             std::cerr << "Generated removal script: " << remove_script << std::endl;
         } else {
             std::cerr << "Error: Could not create " << remove_script << std::endl;
         }
     }
 
-    if (dry_run) {
-        std::cerr << "DRY RUN completed. No changes were made." << std::endl;
-    }
-
     if (execute) {
         std::cerr << "Execution results: " << success_count << " succeeded, " << fail_count << " failed." << std::endl;
-        return (fail_count > 0 && !dry_run) ? 1 : 0;
+        return fail_count > 0 ? 1 : 0;
     } else {
         std::cerr << "Config files written to " << outdir << std::endl;
         return 0;
