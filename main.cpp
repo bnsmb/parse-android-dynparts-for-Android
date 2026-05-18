@@ -1,8 +1,8 @@
 /*
- * parse-android-dynparts - Android dynamic partition parser
- * Generates dmctl command files, optionally executes dmctl, and mounts devices.
+ * mount_dynamic_partitions - Android dynamic partition manager
+ * Creates dmctl devices, mounts partitions.
  *
- * Compile with: clang++ -std=c++17 -o parse-android-dynparts main.cpp -llp
+ * Compile with: clang++ -std=c++17 -o mount_dynamic_partitions main.cpp -llp
  */
 
 #include <stdio.h>
@@ -32,20 +32,18 @@ static void usage(const char* progname) {
             "  -o, --outdir DIR      Output directory for dmctl config files [default: .]\n"
             "  -p, --prefix PREFIX   Prefix to add to logical device names\n"
             "  -r, --rw              Create devices read-write (omit -ro flag)\n"
-            "      --skip-cow        Ignore -cow partitions (cannot be mounted)\n"
-            "      --partitions LIST Comma-separated list of partition names to process\n"
-            "  -x, --execute         Execute dmctl for each generated config file\n"
-            "      --delete          Delete config file after successful dmctl execution\n"
+            "      --skip-cow        Ignore -cow partitions\n"
+            "      --partitions LIST Comma-separated list of partition names\n"
+            "  -x, --execute         Execute dmctl for each config file\n"
+            "      --delete          Delete config file after successful execution\n"
             "      --keep            Keep config file (default)\n"
-            "      --mountdir DIR    Mount the logical device under DIR/<partname>\n"
-            "                         (implies --execute; uses appropriate ro/rw flags)\n"
-            "      --list            List partitions in the selected slot and exit\n"
-            "      --list-all        List partitions in all slots and exit\n"
+            "      --mountdir DIR    Mount devices under DIR/<partname>\n"
+            "      --list            List partitions in selected slot\n"
+            "      --list-all        List partitions in all slots\n"
             "  -h, --help            Show this help\n"
             "\n"
-            "If <super_device> is omitted, /dev/block/by-name/super is used.\n"
-            "Environment variable DMCTL overrides dmctl binary path.\n"
-            "Creates one file per partition: <outdir>/dmctl_<name>.txt\n",
+            "Default super device: /dev/block/by-name/super\n"
+            "Environment DMCTL overrides dmctl path.\n",
             progname);
 }
 
@@ -99,27 +97,32 @@ static std::set<std::string> parse_partition_list(const std::string& list) {
     return result;
 }
 
-// Check if a dm device exists by checking the /dev/block/mapper/ node
 static bool device_exists(const std::string& dm_name) {
     std::string path = "/dev/block/mapper/" + dm_name;
     struct stat st;
     return (stat(path.c_str(), &st) == 0);
 }
 
-// Check if a mount point is already mounted by reading /proc/mounts
 static bool is_mounted(const std::string& mount_point) {
     std::ifstream mounts("/proc/mounts");
     if (!mounts.is_open()) return false;
     std::string line;
     while (std::getline(mounts, line)) {
-        // Format: device mount_point fstype options ... 
         std::istringstream iss(line);
         std::string dev, mp, fstype;
         if (iss >> dev >> mp >> fstype) {
-            if (mp == mount_point) {
-                return true;
-            }
+            if (mp == mount_point) return true;
         }
+    }
+    return false;
+}
+
+static bool wait_for_device(const std::string& device_name, int timeout_sec = 2) {
+    std::string path = "/dev/block/mapper/" + device_name;
+    for (int i = 0; i < timeout_sec * 10; ++i) {
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0) return true;
+        usleep(100000); // 100 ms
     }
     return false;
 }
@@ -140,7 +143,7 @@ static bool run_dmctl(const std::string& dmctl_path, const std::string& config_f
 
 static bool mount_device(const std::string& device_name, const std::string& mount_point, bool read_only) {
     if (is_mounted(mount_point)) {
-        std::cerr << "Mount point " << mount_point << " is already mounted. Skipping mount." << std::endl;
+        std::cerr << "Mount point " << mount_point << " already mounted. Skipping." << std::endl;
         return false;
     }
     std::string mount_options = read_only ? "ro" : "rw";
@@ -154,7 +157,6 @@ static bool mount_device(const std::string& device_name, const std::string& moun
     pid_t pid = fork();
     if (pid == -1) { perror("fork"); return false; }
     if (pid == 0) {
-        // Use "-t auto" but allow fallback; if it fails, the caller will see.
         execlp("mount", "mount", "-t", "auto", "-o", mount_options.c_str(),
                device_path.c_str(), mount_point.c_str(), nullptr);
         perror("execlp mount");
@@ -162,11 +164,16 @@ static bool mount_device(const std::string& device_name, const std::string& moun
     }
     int status;
     waitpid(pid, &status, 0);
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+    int exit_code = WEXITSTATUS(status);
+    if (WIFEXITED(status) && exit_code == 0) {
         std::cerr << "Mounted " << device_path << " on " << mount_point << " (" << mount_options << ")" << std::endl;
         return true;
+    } else if (exit_code == 1) {
+        // Often "need -t" -> no filesystem
+        std::cerr << "No filesystem on " << device_name << ", skipping mount." << std::endl;
+        return false;
     } else {
-        std::cerr << "Mount failed with exit code " << WEXITSTATUS(status) << std::endl;
+        std::cerr << "Mount failed with exit code " << exit_code << std::endl;
         return false;
     }
 }
@@ -178,9 +185,8 @@ static void list_partitions(const std::unique_ptr<LpMetadata>& metadata, uint32_
         bool read_only = (part.attributes & LP_PARTITION_ATTR_READONLY) != 0;
         std::cout << "  " << name << (read_only ? " (ro)" : " (rw)");
         uint64_t total_sectors = 0;
-        for (size_t i = 0; i < part.num_extents; ++i) {
+        for (size_t i = 0; i < part.num_extents; ++i)
             total_sectors += metadata->extents[part.first_extent_index + i].num_sectors;
-        }
         std::cout << " - " << total_sectors << " sectors" << std::endl;
     }
 }
@@ -240,27 +246,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Determine super device path (default if not provided)
     std::string device_path_str = "/dev/block/by-name/super";
-    if (optind < argc) {
-        device_path_str = argv[optind];
-    }
+    if (optind < argc) device_path_str = argv[optind];
     const char* device_path = device_path_str.c_str();
 
     if (list_mode || list_all_mode) {
         if (list_all_mode) {
             for (uint32_t s = 0; s <= 1; ++s) {
                 auto metadata = ReadMetadata(device_path, s);
-                if (metadata) {
-                    list_partitions(metadata, s);
-                } else {
-                    std::cerr << "Failed to read metadata for slot " << s << std::endl;
-                }
+                if (metadata) list_partitions(metadata, s);
+                else std::cerr << "Failed to read metadata for slot " << s << std::endl;
             }
         } else {
-            uint32_t slot_num;
-            if (slot >= 0) slot_num = static_cast<uint32_t>(slot);
-            else slot_num = static_cast<uint32_t>(get_current_slot());
+            uint32_t slot_num = (slot >= 0) ? static_cast<uint32_t>(slot) : static_cast<uint32_t>(get_current_slot());
             auto metadata = ReadMetadata(device_path, slot_num);
             if (!metadata) {
                 std::cerr << "Failed to read metadata from " << device_path << " for slot " << slot_num << std::endl;
@@ -277,12 +275,8 @@ int main(int argc, char** argv) {
         std::cerr << "Warning: Could not create directory " << outdir << std::endl;
     }
 
-    uint32_t slot_num;
-    if (slot >= 0) slot_num = static_cast<uint32_t>(slot);
-    else {
-        slot_num = static_cast<uint32_t>(get_current_slot());
-        std::cerr << "Auto-detected slot " << slot_num << std::endl;
-    }
+    uint32_t slot_num = (slot >= 0) ? static_cast<uint32_t>(slot) : static_cast<uint32_t>(get_current_slot());
+    if (slot < 0) std::cerr << "Auto-detected slot " << slot_num << std::endl;
 
     std::unique_ptr<LpMetadata> metadata = ReadMetadata(device_path, slot_num);
     if (!metadata) {
@@ -299,12 +293,10 @@ int main(int argc, char** argv) {
 
     if (!selected_partitions.empty()) {
         std::set<std::string> missing;
-        for (const auto& req : selected_partitions) {
-            if (available_names.find(req) == available_names.end())
-                missing.insert(req);
-        }
+        for (const auto& req : selected_partitions)
+            if (available_names.find(req) == available_names.end()) missing.insert(req);
         if (!missing.empty()) {
-            std::cerr << "Error: The following requested partitions do not exist in slot " << slot_num << ":";
+            std::cerr << "Error: Requested partitions not in slot " << slot_num << ":";
             for (const auto& m : missing) std::cerr << " " << m;
             std::cerr << std::endl;
             return 1;
@@ -319,21 +311,17 @@ int main(int argc, char** argv) {
     if (execute) {
         std::string test_cmd = dmctl_path + " help > /dev/null 2>&1";
         if (system(test_cmd.c_str()) != 0) {
-            std::cerr << "dmctl not found or not executable: " << dmctl_path << std::endl;
+            std::cerr << "dmctl not found: " << dmctl_path << std::endl;
             return 1;
         }
     }
 
-    int file_count = 0, success_count = 0, fail_count = 0;
+    int success_count = 0, fail_count = 0;
 
     for (const auto& part : metadata->partitions) {
         std::string orig_name = part.name;
-        if (skip_cow && is_cow_partition(orig_name)) {
-            std::cerr << "Skipping cow partition: " << orig_name << std::endl;
-            continue;
-        }
-        if (!selected_partitions.empty() && selected_partitions.find(orig_name) == selected_partitions.end())
-            continue;
+        if (skip_cow && is_cow_partition(orig_name)) continue;
+        if (!selected_partitions.empty() && selected_partitions.find(orig_name) == selected_partitions.end()) continue;
 
         std::string dm_name = prefix + orig_name;
         bool read_only = !read_write && ((part.attributes & LP_PARTITION_ATTR_READONLY) != 0);
@@ -343,6 +331,7 @@ int main(int argc, char** argv) {
             extents.push_back(&metadata->extents[part.first_extent_index + i]);
         if (extents.empty()) continue;
 
+        // Build dmctl config file
         std::string content;
         std::string cmd = "create " + dm_name;
         if (read_only) cmd += " -ro";
@@ -380,46 +369,44 @@ int main(int argc, char** argv) {
         ofs << content;
         ofs.close();
         std::cerr << "Created: " << filename << std::endl;
-        file_count++;
-
-        bool device_created = false;
-        bool device_existed = false;
 
         if (execute) {
-            if (device_exists(dm_name)) {
-                std::cerr << "Device " << dm_name << " already exists. Skipping creation." << std::endl;
-                device_existed = true;
+            bool device_existed = device_exists(dm_name);
+            if (device_existed) {
+                std::cerr << "Device " << dm_name << " already exists." << std::endl;
             } else {
                 std::cerr << "Executing: " << dmctl_path << " -f " << filename << std::endl;
                 if (run_dmctl(dmctl_path, filename)) {
-                    device_created = true;
+                    if (!wait_for_device(dm_name)) {
+                        std::cerr << "Device " << dm_name << " did not appear after creation." << std::endl;
+                        fail_count++;
+                        continue;
+                    }
                 } else {
                     std::cerr << "Failed to create device for " << orig_name << std::endl;
                     fail_count++;
                     continue;
                 }
             }
+
             success_count++;
 
             if (!mountdir.empty()) {
                 std::string mount_point = mountdir + "/" + orig_name;
                 if (!mount_device(dm_name, mount_point, read_only)) {
-                    std::cerr << "Mount failed for " << dm_name << std::endl;
                     fail_count++;
                     success_count--;
-                    continue;
                 }
             }
 
             if (delete_after) {
-                if (device_created || device_existed) {
-                    if (unlink(filename.c_str()) == 0) {
-                        std::cerr << "Deleted: " << filename << std::endl;
-                    } else {
-                        std::cerr << "Warning: Could not delete " << filename << std::endl;
-                    }
-                }
+                if (unlink(filename.c_str()) == 0)
+                    std::cerr << "Deleted: " << filename << std::endl;
+                else
+                    std::cerr << "Warning: Could not delete " << filename << std::endl;
             }
+
+            std::cout << std::endl; // Leerzeile nach jedem Device
         }
     }
 
@@ -427,12 +414,7 @@ int main(int argc, char** argv) {
         std::cerr << "Execution results: " << success_count << " succeeded, " << fail_count << " failed." << std::endl;
         return fail_count > 0 ? 1 : 0;
     } else {
-        if (file_count == 0 && !selected_partitions.empty()) {
-            std::cerr << "No matching partitions found (check slot and --skip-cow)." << std::endl;
-            return 1;
-        }
-        std::cerr << "Done. " << file_count << " config file(s) written to " << outdir << std::endl;
+        std::cerr << "Config files written to " << outdir << std::endl;
         return 0;
     }
 }
-
