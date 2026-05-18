@@ -8,7 +8,13 @@ The source files in this repository can be used to create the Android program **
 
 **mount_dynamic_partitions** reads the information from a super partition on a phone running the Android OS and creates input files for **dmctl** to create logical devices for the dynamic partitions in the super partition.
 
-The usage for the program is:
+The standard dynamic partitions in Android for “/”, “/vendor”, etc. are always mounted as read-only, so no files can be modified in these partitions (not even root can do this).
+
+However, additional logical devices for the dynamic partitions can be mounted in read/write mode, making it possible to modify files in the dynamic partitions.
+
+----
+
+The usage for **mount_dynamic_partitions** is:
 
 ```
 [clang19 toolchain] ASUS_I006D:/ $ mount_dynamic_partitions --help                                                                                                                                                                
@@ -119,7 +125,7 @@ cmake ..
 make
 ```
 
-The created executable is dynamically linked but only for the standard Android libraries:
+The executable file that was created is dynamically linked, but only to the standard Android libraries:
 ```
 ASUS_I006D:/system/bin # ldd /system/bin/mount_dynamic_partitions                                                                                                                                                                                                
 	linux-vdso.so.1 => [vdso] (0x7e07efe000)
