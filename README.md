@@ -1,3 +1,6 @@
+***CAUTION: This repository is still work in progress ***
+
+
 The binary created with the source files from this repository creates input files for the Android binary **dmctl**.
 
 **dmctl** can only use input files with the configuration for one logical device. Therefore, this tool creates separate input files for each logical device..
