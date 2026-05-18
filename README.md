@@ -1,93 +1,102 @@
-***CAUTION: This repository is still work in progress ***
 
+**CAUTION: This repository is still work in progress**
 
-The binary created with the source files from this repository creates input files for the Android binary **dmctl**.
+Purpose
+=======
 
-**dmctl** can only use input files with the configuration for one logical device. Therefore, this tool creates separate input files for each logical device..
+The source files in this repository can be used to create the Android program **mount_dynamic_partitions**.
 
-The usage for the tool is:
+**mount_dynamic_partitions** reads the information from a super partition on a phone running the Android OS and creates input files for **dmctl** to create logical devices for the dynamic partitions in the super partition.
+
+The usage for the program is:
 
 ```
-ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build # ./parse-android-dynparts                                                                                                                                        
-Usage: ./parse-android-dynparts [OPTIONS] <super_device>
+ASUS_I006D:/ $ mount_dynamic_partitions -h                                                                                                                                                                                                  
+Usage: mount_dynamic_partitions [OPTIONS] [<super_device>]
 Options:
-  -s, --slot N       Slot number (0 or 1) [default: current slot]
-  -o, --outdir DIR   Output directory for dmctl config files [default: .]
-  -p, --prefix PREFIX
-                     Prefix to add to logical device names
-  -r, --rw           Create devices read-write (omit -ro flag)
-      --skip-cow     Ignore -cow partitions (cannot be mounted)
-  -h, --help         Show this help
+  -s, --slot N          Slot number (0 or 1) [default: current slot]
+  -o, --outdir DIR      Output directory for dmctl config files [default: .]
+  -p, --prefix PREFIX   Prefix to add to logical device names
+  -r, --rw              Create devices read-write (omit -ro flag)
+      --skip-cow        Ignore -cow partitions
+      --partitions LIST Comma-separated list of partition names
+  -x, --execute         Execute dmctl for each config file
+      --delete          Delete config file after successful execution
+      --keep            Keep config file (default)
+      --mountdir DIR    Mount devices under DIR/<partname>
+      --list            List partitions in selected slot
+      --list-all        List partitions in all slots
+  -h, --help            Show this help
 
-Creates one file per logical partition: <outdir>/dmctl_<name>.txt
-Usage: dmctl -f <file>
-1|ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build # 
+Default super device: /dev/block/by-name/super
+Environment DMCTL overrides dmctl path.
+ASUS_I006D:/ $ 
 ```
+
+<details><summary><b>Example</b></summary>
+	<br>
+<samp>
+ASUS_I006D:/ # mkdir -p /data/local/tmp/rw_mounted_partitions <br>
+ASUS_I006D:/ # 	<br>
+<br>
+ASUS_I006D:/ # mount_dynamic_partitions --prefix rw_ --outdir /data/local/tmp/rw_mounted_partitions --mountdir /data/local/tmp/rw_mounted_partitions --keep --skip-cow --keep --rw<br>                 
+Auto-detected slot 1<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_lukspart001.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_lukspart001.txt<br>
+mount: /dev/block/mapper/rw_lukspart001: need -t<br>
+No filesystem on rw_lukspart001, skipping mount.<br>
+<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_odm_b.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_odm_b.txt<br>
+Mounted /dev/block/mapper/rw_odm_b on /data/local/tmp/rw_mounted_partitions/odm_b (rw)<br>
+<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_product_b.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_product_b.txt<br>
+Mounted /dev/block/mapper/rw_product_b on /data/local/tmp/rw_mounted_partitions/product_b (rw)<br>
+<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_system_b.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_system_b.txt<br>
+Mounted /dev/block/mapper/rw_system_b on /data/local/tmp/rw_mounted_partitions/system_b (rw)<br>
+<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_system_ext_b.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_system_ext_b.txt<br>
+Mounted /dev/block/mapper/rw_system_ext_b on /data/local/tmp/rw_mounted_partitions/system_ext_b (rw)<br>
+<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_vendor_b.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_vendor_b.txt<br>
+Mounted /dev/block/mapper/rw_vendor_b on /data/local/tmp/rw_mounted_partitions/vendor_b (rw)<br>
+<br>
+Created: /data/local/tmp/rw_mounted_partitions/dmctl_vendor_dlkm_b.txt<br>
+Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_vendor_dlkm_b.txt<br>
+Mounted /dev/block/mapper/rw_vendor_dlkm_b on /data/local/tmp/rw_mounted_partitions/vendor_dlkm_b (rw)<br>
+<br>
+Execution results: 6 succeeded, 1 failed.<br>
+1|ASUS_I006D:/ # <br>
+	<br>
+1|ASUS_I006D:/ # mount | grep  rw_<br>
+/dev/block/dm-13 on /data/local/tmp/rw_mounted_partitions/odm_b type ext4 (rw,seclabel,relatime)<br>
+/dev/block/dm-15 on /data/local/tmp/rw_mounted_partitions/product_b type ext4 (rw,seclabel,relatime)<br>
+/dev/block/dm-16 on /data/local/tmp/rw_mounted_partitions/system_b type ext4 (rw,seclabel,relatime)<br>
+/dev/block/dm-19 on /data/local/tmp/rw_mounted_partitions/system_ext_b type ext4 (rw,seclabel,relatime)<br>
+/dev/block/dm-20 on /data/local/tmp/rw_mounted_partitions/vendor_b type ext4 (rw,seclabel,relatime)<br>
+/dev/block/dm-25 on /data/local/tmp/rw_mounted_partitions/vendor_dlkm_b type ext4 (rw,seclabel,relatime)<br>
+ASUS_I006D:/ # <br>
+	<br>
+</samp>
+</details>
+
+
+Building
+========
 
 The source code can be compiled in Android using the **clang19 toolchain** for Android. The **clang19 toolchain** for Android is available here:
 
 [https://github.com/bnsmb/clang19_toolchain_for_android](https://github.com/bnsmb/clang19_toolchain_for_android)
 
-Use 
-```
-git clone git@github.com:bnsmb/parse-android-dynparts-for-Android.git
-```
-to copy the source files to the phone.
-
-To compile the binary for Android, execute the instructions using **cmake** and **ninja** listed below 
-
-Then execute the script **compile_parse.sh** when in the directory **./build** to create an executable that can be used while the phone is booted into the recovery:
-```
-ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build # ldd /data/local/tmp/develop/parse-android-dynparts/build/parse-android-dynparts                                                                                 
-	linux-vdso.so.1 => [vdso] (0x70d3770000)
-	libc.so => /apex/com.android.runtime/lib64/bionic/libc.so (0x70ce297000)
-	libm.so => /apex/com.android.runtime/lib64/bionic/libm.so (0x70d0101000)
-	libdl.so => /apex/com.android.runtime/lib64/bionic/libdl.so (0x70d00f3000)
-ASUS_I006D:/data/local/tmp/develop/parse-android-dynparts/build #
-```
 ----
 
-Purpose
-=======
-Most devices running Android 10 and higher use Android's [Dynamic Partitions][1]
-feature to allow the different read-only system partitions (e.g. `system`,
-`vendor`, `product`) to share the same pool of storage space. This allows
-vendors to safely resize those partitions in OTA updates, as long as the sum of
-their sizes doesn't exceed that of the physical partition they all reside in.
-
-The physical partition image that holds multiple Android dynamic partitions is
-conventionally named `super.img` and holds similar information as an LVM
-physical volume on Linux: a list of logical partitions, each associated with a
-(possibly non-contiguous) set of blocks in the file that comprise it. Like LVM,
-Android makes use of [Device Mapper's dm-linear target][2] to inform the
-kernel of the logical partitions so it can map them to block devices in
-`/dev/mapper`.
-
-In true Google fashion, however, Android dynamic partitions use a totally custom
-header format that is not compatible with LVM or other similar software. As
-such, the only official tools that exist to mount them are part of Android and
-depend heavily on Android's frameworks, volume manager, and init system. (There
-are [official tools][3] that run on Linux to pack and unpack `super.img` files,
-but they cannot mount them in-place.)
-
-This tool makes it possible to mount `super.img` files with a standard Linux
-userspace. It uses a modified version of Google's AOSP code to parse the
-partition layout, then outputs that layout as a textual "concise device
-specification" which, when passed to `dmsetup`, instructs the kernel to create
-a Device Mapper block device for each logical partition in the image.
-
-[1]: https://source.android.com/devices/tech/ota/dynamic_partitions
-[2]: https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/linear.html
-[3]: https://android.googlesource.com/platform/system/extras/+/master/partition_tools/
-
-Dependencies
-============
- - CMake
- - OpenSSL (for hash functions)
-
-Building
-========
 This is a standard C++ CMake project; it builds like any other CMake project.
+
 For those unfamiliar with CMake, here's the incantation you need to build using
 [Ninja](https://ninja-build.org/) as a backend:
 ```
@@ -105,33 +114,31 @@ cmake ..
 make
 ```
 
+The created executable is dynamically linked but only for the standard Android libraries:
+```
+ASUS_I006D:/system/bin # ldd /system/bin/mount_dynamic_partitions                                                                                                                                                                                                
+	linux-vdso.so.1 => [vdso] (0x7e07efe000)
+	libc.so => /apex/com.android.runtime/lib64/bionic/libc.so (0x7e02e98000)
+	libm.so => /apex/com.android.runtime/lib64/bionic/libm.so (0x7e06ac5000)
+	libdl.so => /apex/com.android.runtime/lib64/bionic/libdl.so (0x7e06a9f000)
+ASUS_I006D:/system/bin #
+```
+
+Therefore, it should run on any of the current Android ROMs and recoveries.
+
 Usage
 =====
 
-Setup
------
- 1. Obtain a raw `super.img`. Depending on the source of the image you're
-    working with, this may initially be a sparse image, which you'll have to
-    unsparse using the standard Android `simg2img` tool, or it may be one
-    partition inside a GPT-partitioned disk image.
- 2. Make your `super.img` available as a loop device (omit `-r` if you want to
-    allow writes):
-    ```
-    losetup -r /dev/loop0 super.img
-    ```
- 3. Create mappings for the dynamic partitions:
-    ```
-    dmsetup create --concise "$(parse-android-dynparts /dev/loop0)"
-    ```
- 4. Access your partitions as `/dev/mapper/dynpart-<NAME>`!
+Either clone the repository and create your own binary, or download the binary for **arm64** CPUs from the repository:
 
-Teardown
---------
- 1. Unmap the Device Mapper devices:
-    ```
-    dmsetup remove /dev/mapper/dynpart-*
-    ```
- 2. Delete the loop device:
-    ```
-    losetup -d /dev/loop0
-    ```
+```
+[xtrnaw7@t15g /data/develop/git_repos/parse-android-dynparts-for-Android]$ file mount_dynamic_partitions 
+mount_dynamic_partitions: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /system/bin/linker64, for Android 31, built by NDK r27d (13750724), with debug_info, not stripped
+[xtrnaw7@t15g /data/develop/git_repos/parse-android-dynparts-for-Android]$ 
+````
+The documentation for mount_dynamic_partitions is available here:
+
+[http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
+
+(see also the readme in the GitHub repository with the original source code used for this program : [https://github.com/droidian/parse-android-dynparts](https://github.com/droidian/parse-android-dynparts) )
+
