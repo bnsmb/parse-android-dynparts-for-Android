@@ -11,8 +11,10 @@ The source files in this repository can be used to create the Android program **
 The usage for the program is:
 
 ```
-ASUS_I006D:/ $ mount_dynamic_partitions -h                                
+[clang19 toolchain] ASUS_I006D:/ $ mount_dynamic_partitions --help                                                                                                                                                                
 Usage: mount_dynamic_partitions [OPTIONS] [<super_device>]
+Version: 1.0.0
+
 Options:
   -s, --slot N          Slot number (0 or 1) [default: current slot]
   -o, --outdir DIR      Output directory for dmctl config files [default: .]
@@ -21,16 +23,19 @@ Options:
       --skip-cow        Ignore -cow partitions
       --partitions LIST Comma-separated list of partition names
   -x, --execute         Execute dmctl for each config file
+      --dry-run         Print actions without executing them (implies -x)
       --delete          Delete config file after successful execution
       --keep            Keep config file (default)
       --mountdir DIR    Mount devices under DIR/<partname>
+      --gen-scripts PFX Generate unmount/remove scripts with prefix PFX
       --list            List partitions in selected slot
       --list-all        List partitions in all slots
+  -V, --version         Print version and exit
   -h, --help            Show this help
 
 Default super device: /dev/block/by-name/super
 Environment DMCTL overrides dmctl path.
-ASUS_I006D:/ $ 
+[clang19 toolchain] ASUS_I006D:/ $ 
 ```
 
 <details><summary><b>Example</b></summary>
