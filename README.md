@@ -11,7 +11,7 @@ The source files in this repository can be used to create the Android program **
 The usage for the program is:
 
 ```
-ASUS_I006D:/ $ mount_dynamic_partitions -h                                                                                                                                                                                                  
+ASUS_I006D:/ $ mount_dynamic_partitions -h                                
 Usage: mount_dynamic_partitions [OPTIONS] [<super_device>]
 Options:
   -s, --slot N          Slot number (0 or 1) [default: current slot]
