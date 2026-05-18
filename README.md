@@ -11,7 +11,7 @@ The source files in this repository can be used to create the Android program **
 The usage for the program is:
 
 ```
-ASUS_I006D:/ $ mount_dynamic_partitions -h                                                                                                                                                                                                  
+ASUS_I006D:/ $ mount_dynamic_partitions -h                                
 Usage: mount_dynamic_partitions [OPTIONS] [<super_device>]
 Options:
   -s, --slot N          Slot number (0 or 1) [default: current slot]
@@ -39,7 +39,7 @@ ASUS_I006D:/ $
 ASUS_I006D:/ # mkdir -p /data/local/tmp/rw_mounted_partitions <br>
 ASUS_I006D:/ # 	<br>
 <br>
-ASUS_I006D:/ # mount_dynamic_partitions --prefix rw_ --outdir /data/local/tmp/rw_mounted_partitions --mountdir /data/local/tmp/rw_mounted_partitions --keep --skip-cow --keep --rw<br>                 
+ASUS_I006D:/ # mount_dynamic_partitions --prefix rw_ --outdir /data/local/tmp/rw_mounted_partitions --mountdir /data/local/tmp/rw_mounted_partitions --skip-cow --keep --rw<br>                 
 Auto-detected slot 1<br>
 Created: /data/local/tmp/rw_mounted_partitions/dmctl_lukspart001.txt<br>
 Executing: dmctl -f /data/local/tmp/rw_mounted_partitions/dmctl_lukspart001.txt<br>
@@ -130,12 +130,10 @@ Usage
 =====
 
 Either clone the repository and create your own binary, or download the binary for **arm64** CPUs from the repository:
-
 ```
-[xtrnaw7@t15g /data/develop/git_repos/parse-android-dynparts-for-Android]$ file mount_dynamic_partitions 
-mount_dynamic_partitions: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /system/bin/linker64, for Android 31, built by NDK r27d (13750724), with debug_info, not stripped
-[xtrnaw7@t15g /data/develop/git_repos/parse-android-dynparts-for-Android]$ 
-````
+wget https://github.com/bnsmb/parse-android-dynparts-for-Android/raw/refs/heads/droidian/mount_dynamic_partitions
+```
+
 The documentation for mount_dynamic_partitions is available here:
 
 [http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
