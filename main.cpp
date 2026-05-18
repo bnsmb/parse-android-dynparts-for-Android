@@ -99,14 +99,29 @@ static std::set<std::string> parse_partition_list(const std::string& list) {
     return result;
 }
 
+// Check if a dm device exists by checking the /dev/block/mapper/ node
 static bool device_exists(const std::string& dm_name) {
-    std::string cmd = "dmctl list devices 2>/dev/null | grep -q '^" + dm_name + " '";
-    return (system(cmd.c_str()) == 0);
+    std::string path = "/dev/block/mapper/" + dm_name;
+    struct stat st;
+    return (stat(path.c_str(), &st) == 0);
 }
 
+// Check if a mount point is already mounted by reading /proc/mounts
 static bool is_mounted(const std::string& mount_point) {
-    std::string cmd = "grep -q ' ' " + mount_point + " ' /proc/mounts 2>/dev/null";
-    return (system(cmd.c_str()) == 0);
+    std::ifstream mounts("/proc/mounts");
+    if (!mounts.is_open()) return false;
+    std::string line;
+    while (std::getline(mounts, line)) {
+        // Format: device mount_point fstype options ... 
+        std::istringstream iss(line);
+        std::string dev, mp, fstype;
+        if (iss >> dev >> mp >> fstype) {
+            if (mp == mount_point) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 static bool run_dmctl(const std::string& dmctl_path, const std::string& config_file) {
@@ -139,6 +154,7 @@ static bool mount_device(const std::string& device_name, const std::string& moun
     pid_t pid = fork();
     if (pid == -1) { perror("fork"); return false; }
     if (pid == 0) {
+        // Use "-t auto" but allow fallback; if it fails, the caller will see.
         execlp("mount", "mount", "-t", "auto", "-o", mount_options.c_str(),
                device_path.c_str(), mount_point.c_str(), nullptr);
         perror("execlp mount");
