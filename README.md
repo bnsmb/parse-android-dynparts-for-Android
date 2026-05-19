@@ -1,5 +1,5 @@
 
-**CAUTION: This repository is still work in progress**
+**CAUTION: This repository is still initial work in progress**
 
 Purpose
 =======
