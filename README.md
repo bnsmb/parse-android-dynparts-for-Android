@@ -17,7 +17,7 @@ However, additional logical devices for the dynamic partitions can be mounted in
 The usage for **mount_dynamic_partitions** is:
 
 ```
-[clang19 toolchain] ASUS_I006D:/ $ mount_dynamic_partitions --help                                                                                                                                                                
+[shell@localhost ~]$ mount_dynamic_partitions  -h
 Usage: mount_dynamic_partitions [OPTIONS] [<super_device>]
 Version: 1.0.0
 
@@ -29,11 +29,12 @@ Options:
       --skip-cow        Ignore -cow partitions
       --partitions LIST Comma-separated list of partition names
   -x, --execute         Execute dmctl for each config file
-      --dry-run         Print actions without executing them (implies -x)
+      --dry-run         Generate script without executing (implies -x)
       --delete          Delete config file after successful execution
       --keep            Keep config file (default)
       --mountdir DIR    Mount devices under DIR/<partname>
       --gen-scripts PFX Generate unmount/remove scripts with prefix PFX
+      --force-multi-rw  Allow multiple read-write mounts of same device
       --list            List partitions in selected slot
       --list-all        List partitions in all slots
   -V, --version         Print version and exit
@@ -41,7 +42,7 @@ Options:
 
 Default super device: /dev/block/by-name/super
 Environment DMCTL overrides dmctl path.
-[clang19 toolchain] ASUS_I006D:/ $ 
+[shell@localhost ~]$ 
 ```
 
 <details><summary><b>Example</b></summary>
