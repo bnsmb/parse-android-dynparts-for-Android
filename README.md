@@ -1,5 +1,5 @@
 
-**CAUTION: This repository is still work in progress**
+**CAUTION: This repository is still initial work in progress**
 
 Purpose
 =======
@@ -17,7 +17,7 @@ However, additional logical devices for the dynamic partitions can be mounted in
 The usage for **mount_dynamic_partitions** is:
 
 ```
-[clang19 toolchain] ASUS_I006D:/ $ mount_dynamic_partitions --help                                                                                                                                                                
+[shell@localhost ~]$ mount_dynamic_partitions  -h
 Usage: mount_dynamic_partitions [OPTIONS] [<super_device>]
 Version: 1.0.0
 
@@ -29,11 +29,12 @@ Options:
       --skip-cow        Ignore -cow partitions
       --partitions LIST Comma-separated list of partition names
   -x, --execute         Execute dmctl for each config file
-      --dry-run         Print actions without executing them (implies -x)
+      --dry-run         Generate script without executing (implies -x)
       --delete          Delete config file after successful execution
       --keep            Keep config file (default)
       --mountdir DIR    Mount devices under DIR/<partname>
       --gen-scripts PFX Generate unmount/remove scripts with prefix PFX
+      --force-multi-rw  Allow multiple read-write mounts of same device
       --list            List partitions in selected slot
       --list-all        List partitions in all slots
   -V, --version         Print version and exit
@@ -41,7 +42,7 @@ Options:
 
 Default super device: /dev/block/by-name/super
 Environment DMCTL overrides dmctl path.
-[clang19 toolchain] ASUS_I006D:/ $ 
+[shell@localhost ~]$ 
 ```
 
 <details><summary><b>Example</b></summary>
@@ -145,9 +146,14 @@ Either clone the repository and create your own binary, or download the binary f
 wget https://github.com/bnsmb/parse-android-dynparts-for-Android/raw/refs/heads/droidian/mount_dynamic_partitions
 ```
 
-The documentation for mount_dynamic_partitions is available here:
+The documentation for **mount_dynamic_partitions** is available here:
 
-[http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
+[http://bnsmb.de/My_HowTos_for_Android.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
 
 (see also the readme in the GitHub repository with the original source code used for this program : [https://github.com/droidian/parse-android-dynparts](https://github.com/droidian/parse-android-dynparts) )
+
+Notes
+====
+
+The file **parse-android-dynparts** in this repository is the file from the original repository that was used to create this repository compiled for **arm64** CPUs. **parse-android-dynparts** parses the super partition and creates an input file for the Linux (not Android!) tool **dmsetup** to create logical devices for the dynamic partitions in the super partition.
 
