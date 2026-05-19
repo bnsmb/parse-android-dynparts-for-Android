@@ -148,7 +148,7 @@ wget https://github.com/bnsmb/parse-android-dynparts-for-Android/raw/refs/heads/
 
 The documentation for mount_dynamic_partitions is available here:
 
-[http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android_open_details.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
+[http://bnsmb.de/My_HowTos_for_Android.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
 
 (see also the readme in the GitHub repository with the original source code used for this program : [https://github.com/droidian/parse-android-dynparts](https://github.com/droidian/parse-android-dynparts) )
 
