@@ -146,7 +146,7 @@ Either clone the repository and create your own binary, or download the binary f
 wget https://github.com/bnsmb/parse-android-dynparts-for-Android/raw/refs/heads/droidian/mount_dynamic_partitions
 ```
 
-The documentation for mount_dynamic_partitions is available here:
+The documentation for **mount_dynamic_partitions** is available here:
 
 [http://bnsmb.de/My_HowTos_for_Android.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode](http://bnsmb.de/My_HowTos_for_Android.html#How_to_mount_the_dynamic_partitions_in_Android_in_readwrite_mode)
 
