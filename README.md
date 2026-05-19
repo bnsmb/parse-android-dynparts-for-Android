@@ -152,3 +152,8 @@ The documentation for **mount_dynamic_partitions** is available here:
 
 (see also the readme in the GitHub repository with the original source code used for this program : [https://github.com/droidian/parse-android-dynparts](https://github.com/droidian/parse-android-dynparts) )
 
+Notes
+====
+
+The file **parse-android-dynparts** in this repository is the file from the original repository that was used to create this repository compiled for **arm64** CPUs. **parse-android-dynparts** parses the super partition and creates an input file for the Linux (not Android!) tool **dmsetup** to create logical devices for the dynamic partitions in the super partition.
+
