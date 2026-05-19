@@ -22,6 +22,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <liblp/liblp.h>
 
 #define VERSION "1.0.0"
@@ -40,11 +42,12 @@ static void usage(const char* progname) {
             "      --skip-cow        Ignore -cow partitions\n"
             "      --partitions LIST Comma-separated list of partition names\n"
             "  -x, --execute         Execute dmctl for each config file\n"
-            "      --dry-run         Print actions without executing them (implies -x)\n"
+            "      --dry-run         Generate script without executing (implies -x)\n"
             "      --delete          Delete config file after successful execution\n"
             "      --keep            Keep config file (default)\n"
             "      --mountdir DIR    Mount devices under DIR/<partname>\n"
             "      --gen-scripts PFX Generate unmount/remove scripts with prefix PFX\n"
+            "      --force-multi-rw  Allow multiple read-write mounts of same device\n"
             "      --list            List partitions in selected slot\n"
             "      --list-all        List partitions in all slots\n"
             "  -V, --version         Print version and exit\n"
@@ -112,6 +115,10 @@ static bool device_exists(const std::string& dm_name) {
 }
 
 static bool is_mounted(const std::string& mount_point) {
+    char abs_path[PATH_MAX];
+    if (realpath(mount_point.c_str(), abs_path) == nullptr) {
+        return false; // Path doesn't exist or can't be resolved -> not mounted
+    }
     std::ifstream mounts("/proc/mounts");
     if (!mounts.is_open()) return false;
     std::string line;
@@ -119,7 +126,7 @@ static bool is_mounted(const std::string& mount_point) {
         std::istringstream iss(line);
         std::string dev, mp, fstype;
         if (iss >> dev >> mp >> fstype) {
-            if (mp == mount_point) return true;
+            if (mp == abs_path) return true;
         }
     }
     return false;
@@ -152,7 +159,7 @@ static bool run_dmctl(const std::string& dmctl_path, const std::string& config_f
 static bool mount_device(const std::string& device_name, const std::string& mount_point, bool read_only) {
     if (is_mounted(mount_point)) {
         std::cerr << "Mount point " << mount_point << " already mounted. Skipping." << std::endl;
-        return false;
+        return true;
     }
     std::string mount_options = read_only ? "ro" : "rw";
     std::string device_path = "/dev/block/mapper/" + device_name;
@@ -165,6 +172,13 @@ static bool mount_device(const std::string& device_name, const std::string& moun
     pid_t pid = fork();
     if (pid == -1) { perror("fork"); return false; }
     if (pid == 0) {
+        // Suppress mount error output for "need -t"
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull != -1) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
         execlp("mount", "mount", "-t", "auto", "-o", mount_options.c_str(),
                device_path.c_str(), mount_point.c_str(), nullptr);
         perror("execlp mount");
@@ -177,9 +191,8 @@ static bool mount_device(const std::string& device_name, const std::string& moun
         std::cerr << "Mounted " << device_path << " on " << mount_point << " (" << mount_options << ")" << std::endl;
         return true;
     } else if (exit_code == 1) {
-        // Often "need -t" -> no filesystem
-        std::cerr << "No filesystem on " << device_name << ", skipping mount." << std::endl;
-        return false;
+        // No filesystem, ignore (error message suppressed)
+        return true;
     } else {
         std::cerr << "Mount failed with exit code " << exit_code << std::endl;
         return false;
@@ -210,6 +223,7 @@ int main(int argc, char** argv) {
     bool delete_after = false;
     std::string mountdir = "";
     std::string gen_scripts_prefix = "";
+    bool force_multi_rw = false;
     bool list_mode = false;
     bool list_all_mode = false;
     std::set<std::string> selected_partitions;
@@ -227,6 +241,7 @@ int main(int argc, char** argv) {
         {"keep",        no_argument,       0, 1003},
         {"mountdir",    required_argument, 0, 1004},
         {"gen-scripts", required_argument, 0, 1007},
+        {"force-multi-rw", no_argument,   0, 1009},
         {"list",        no_argument,       0, 1005},
         {"list-all",    no_argument,       0, 1006},
         {"version",     no_argument,       0, 'V'},
@@ -249,6 +264,7 @@ int main(int argc, char** argv) {
         case 1003: break;
         case 1004: mountdir = optarg; break;
         case 1007: gen_scripts_prefix = optarg; break;
+        case 1009: force_multi_rw = true; break;
         case 1005: list_mode = true; break;
         case 1006: list_all_mode = true; break;
         case 'V': std::cout << "mount_dynamic_partitions version " << VERSION << std::endl; return 0;
@@ -337,8 +353,25 @@ int main(int argc, char** argv) {
     // For script generation, collect succeeded mounts and devices
     std::vector<std::string> mounted_points;
     std::vector<std::string> created_devices;
+    std::set<std::string> rw_mounted_devices; // track devices mounted RW
 
     int success_count = 0, fail_count = 0;
+
+    // If dry-run, we'll generate a shell script with all commands
+    std::ofstream dryrun_script;
+    if (dry_run) {
+        std::string script_path = outdir + "/mount_all.sh";
+        dryrun_script.open(script_path);
+        if (dryrun_script.is_open()) {
+            dryrun_script << "#!/system/bin/sh\n";
+            dryrun_script << "# Auto-generated script to create and mount dynamic partitions\n";
+            dryrun_script << "# Generated by mount_dynamic_partitions\n\n";
+            dryrun_script << "set -e\n\n";
+            dryrun_script << "DMCTL=" << dmctl_path << "\n\n";
+        } else {
+            std::cerr << "Warning: Could not create dry-run script " << script_path << std::endl;
+        }
+    }
 
     for (const auto& part : metadata->partitions) {
         std::string orig_name = part.name;
@@ -348,12 +381,18 @@ int main(int argc, char** argv) {
         std::string dm_name = prefix + orig_name;
         bool read_only = !read_write && ((part.attributes & LP_PARTITION_ATTR_READONLY) != 0);
 
+        // Check for multiple RW mounts
+        if (!read_only && !force_multi_rw && rw_mounted_devices.find(dm_name) != rw_mounted_devices.end()) {
+            std::cerr << "Warning: Device " << dm_name << " already mounted read-write. Skipping additional RW mount." << std::endl;
+            continue;
+        }
+
         std::vector<const LpMetadataExtent*> extents;
         for (size_t i = 0; i < part.num_extents; ++i)
             extents.push_back(&metadata->extents[part.first_extent_index + i]);
         if (extents.empty()) continue;
 
-        // Build dmctl config file
+        // Build dmctl config file content
         std::string content;
         std::string cmd = "create " + dm_name;
         if (read_only) cmd += " -ro";
@@ -392,12 +431,19 @@ int main(int argc, char** argv) {
         ofs.close();
         std::cerr << "Created: " << filename << std::endl;
 
+        // Write to dry-run script if active
+        if (dryrun_script.is_open()) {
+            dryrun_script << "\n# Logical device: " << orig_name << "\n";
+            dryrun_script << "cat > " << filename << " << 'EOF'\n";
+            dryrun_script << content;
+            dryrun_script << "EOF\n";
+        }
+
         if (execute) {
             bool device_existed = false;
             if (!dry_run) {
                 device_existed = device_exists(dm_name);
             } else {
-                // In dry-run, assume device does not exist for simulation
                 device_existed = false;
             }
 
@@ -406,6 +452,9 @@ int main(int argc, char** argv) {
             } else {
                 if (dry_run) {
                     std::cerr << "DRY RUN: Would execute: " << dmctl_path << " -f " << filename << std::endl;
+                    if (dryrun_script.is_open()) {
+                        dryrun_script << "$DMCTL -f " << filename << "\n";
+                    }
                 } else {
                     std::cerr << "Executing: " << dmctl_path << " -f " << filename << std::endl;
                     if (run_dmctl(dmctl_path, filename)) {
@@ -422,7 +471,6 @@ int main(int argc, char** argv) {
                 }
             }
 
-            // Record device for removal script (only if it didn't exist before, and dry-run still records)
             if (!device_existed) created_devices.push_back(dm_name);
 
             success_count++;
@@ -432,12 +480,17 @@ int main(int argc, char** argv) {
                 bool mount_success = false;
                 if (dry_run) {
                     std::cerr << "DRY RUN: Would mount " << dm_name << " on " << mount_point << " (" << (read_only ? "ro" : "rw") << ")" << std::endl;
-                    mount_success = true; // simulate success for script generation
+                    if (dryrun_script.is_open()) {
+                        dryrun_script << "mkdir -p " << mount_point << "\n";
+                        dryrun_script << "mount -t auto -o " << (read_only ? "ro" : "rw") << " /dev/block/mapper/" << dm_name << " " << mount_point << "\n";
+                    }
+                    mount_success = true;
                 } else {
                     mount_success = mount_device(dm_name, mount_point, read_only);
                 }
                 if (mount_success) {
                     mounted_points.push_back(mount_point);
+                    if (!read_only) rw_mounted_devices.insert(dm_name);
                 } else {
                     fail_count++;
                     success_count--;
@@ -449,12 +502,19 @@ int main(int argc, char** argv) {
                     std::cerr << "Deleted: " << filename << std::endl;
                 else
                     std::cerr << "Warning: Could not delete " << filename << std::endl;
-            } else if (dry_run && delete_after) {
-                std::cerr << "DRY RUN: Would delete config file " << filename << std::endl;
+            } else if (dry_run && delete_after && dryrun_script.is_open()) {
+                dryrun_script << "rm -f " << filename << "\n";
             }
 
             std::cout << std::endl;
         }
+    }
+
+    if (dryrun_script.is_open()) {
+        dryrun_script << "\necho \"All operations completed.\"\n";
+        dryrun_script.close();
+        chmod((outdir + "/mount_all.sh").c_str(), 0755);
+        std::cerr << "Generated executable script: " << outdir << "/mount_all.sh" << std::endl;
     }
 
     // Generate unmount and remove scripts if requested (even in dry-run)
