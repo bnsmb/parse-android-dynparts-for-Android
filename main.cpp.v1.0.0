@@ -1,6 +1,6 @@
 /*
  * mount_dynamic_partitions - Android dynamic partition manager
- * Version 1.1.0
+ * Version 1.0.0
  *
  * Creates dmctl devices and optionally mounts partitions.
  *
@@ -26,7 +26,7 @@
 #include <limits.h>
 #include <liblp/liblp.h>
 
-#define VERSION "1.1.0"
+#define VERSION "1.0.0"
 
 using namespace android::fs_mgr;
 
@@ -38,8 +38,7 @@ static void usage(const char* progname) {
             "  -s, --slot N          Slot number (0 or 1) [default: current slot]\n"
             "  -o, --outdir DIR      Output directory for dmctl config files [default: .]\n"
             "  -p, --prefix PREFIX   Prefix to add to logical device names\n"
-            "      --ro              Mount partitions read-only (default)\n"
-            "  -r, --rw              Mount partitions read-write\n"
+            "  -r, --rw              Create devices read-write (omit -ro flag)\n"
             "      --skip-cow        Ignore -cow partitions\n"
             "      --partitions LIST Comma-separated list of partition names\n"
             "  -x, --execute         Execute dmctl for each config file\n"
@@ -48,7 +47,6 @@ static void usage(const char* progname) {
             "      --keep            Keep config file (default)\n"
             "      --mountdir DIR    Mount devices under DIR/<partname>\n"
             "      --gen-scripts PFX Generate unmount/remove scripts with prefix PFX\n"
-            "                         (if PFX does not start with '/', it is placed under outdir)\n"
             "      --force-multi-rw  Allow multiple read-write mounts of same device\n"
             "      --list            List partitions in selected slot\n"
             "      --list-all        List partitions in all slots\n"
@@ -117,6 +115,10 @@ static bool device_exists(const std::string& dm_name) {
 }
 
 static bool is_mounted(const std::string& mount_point) {
+    char abs_path[PATH_MAX];
+    if (realpath(mount_point.c_str(), abs_path) == nullptr) {
+        return false; // Path doesn't exist or can't be resolved -> not mounted
+    }
     std::ifstream mounts("/proc/mounts");
     if (!mounts.is_open()) return false;
     std::string line;
@@ -124,7 +126,7 @@ static bool is_mounted(const std::string& mount_point) {
         std::istringstream iss(line);
         std::string dev, mp, fstype;
         if (iss >> dev >> mp >> fstype) {
-            if (mp == mount_point) return true;
+            if (mp == abs_path) return true;
         }
     }
     return false;
@@ -167,83 +169,54 @@ static bool mount_device(const std::string& device_name, const std::string& moun
         return false;
     }
 
-    // Pipe to capture stderr
-    int pipefd[2];
-    if (pipe(pipefd) == -1) {
-        perror("pipe");
-        return false;
-    }
-
     pid_t pid = fork();
     if (pid == -1) { perror("fork"); return false; }
     if (pid == 0) {
-        close(pipefd[0]);
-        dup2(pipefd[1], STDERR_FILENO);
-        close(pipefd[1]);
+        // Suppress mount error output for "need -t"
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull != -1) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
         execlp("mount", "mount", "-t", "auto", "-o", mount_options.c_str(),
                device_path.c_str(), mount_point.c_str(), nullptr);
         perror("execlp mount");
         _exit(1);
     }
-    close(pipefd[1]);
-    std::string error_output;
-    char buffer[1024];
-    ssize_t n;
-    while ((n = read(pipefd[0], buffer, sizeof(buffer)-1)) > 0) {
-        buffer[n] = '\0';
-        error_output += buffer;
-    }
-    close(pipefd[0]);
-
     int status;
     waitpid(pid, &status, 0);
     int exit_code = WEXITSTATUS(status);
     if (WIFEXITED(status) && exit_code == 0) {
         std::cerr << "Mounted " << device_path << " on " << mount_point << " (" << mount_options << ")" << std::endl;
         return true;
+    } else if (exit_code == 1) {
+        // No filesystem, ignore (error message suppressed)
+        return true;
     } else {
-        // Every non-zero exit code is an error: show captured stderr
-        if (!error_output.empty())
-            std::cerr << "Mount error: " << error_output;
-        else
-            std::cerr << "Mount failed with exit code " << exit_code << std::endl;
+        std::cerr << "Mount failed with exit code " << exit_code << std::endl;
         return false;
     }
 }
 
-static void list_partitions(const std::unique_ptr<LpMetadata>& metadata, uint32_t slot_num, bool show_inactive = true) {
+static void list_partitions(const std::unique_ptr<LpMetadata>& metadata, uint32_t slot_num) {
     std::cout << "Partitions in slot " << slot_num << ":" << std::endl;
     for (const auto& part : metadata->partitions) {
         std::string name = part.name;
         bool read_only = (part.attributes & LP_PARTITION_ATTR_READONLY) != 0;
+        std::cout << "  " << name << (read_only ? " (ro)" : " (rw)");
         uint64_t total_sectors = 0;
         for (size_t i = 0; i < part.num_extents; ++i)
             total_sectors += metadata->extents[part.first_extent_index + i].num_sectors;
-
-        if (total_sectors == 0) {
-            if (show_inactive)
-                std::cout << "  " << name << " (inactive) - 0 sectors" << std::endl;
-        } else {
-            std::cout << "  " << name << (read_only ? " (ro)" : " (rw)") << " - " << total_sectors << " sectors" << std::endl;
-        }
+        std::cout << " - " << total_sectors << " sectors" << std::endl;
     }
-}
-
-static std::string make_absolute_path(const std::string& path) {
-    if (path.empty()) return "";
-    if (path[0] == '/') return path;
-    char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd)) == nullptr) {
-        return path;
-    }
-    return std::string(cwd) + "/" + path;
 }
 
 int main(int argc, char** argv) {
     int slot = -1;
     std::string outdir = ".";
     std::string prefix = "";
-    bool read_write = false;   // default: read-only
+    bool read_write = false;
     bool skip_cow = false;
     bool execute = false;
     bool dry_run = false;
@@ -259,7 +232,6 @@ int main(int argc, char** argv) {
         {"slot",        required_argument, 0, 's'},
         {"outdir",      required_argument, 0, 'o'},
         {"prefix",      required_argument, 0, 'p'},
-        {"ro",          no_argument,       0, 1010},
         {"rw",          no_argument,       0, 'r'},
         {"skip-cow",    no_argument,       0, 1000},
         {"partitions",  required_argument, 0, 1001},
@@ -283,7 +255,6 @@ int main(int argc, char** argv) {
         case 's': slot = atoi(optarg); break;
         case 'o': outdir = optarg; break;
         case 'p': prefix = optarg; break;
-        case 1010: read_write = false; break; // --ro (explicit, default)
         case 'r': read_write = true; break;
         case 1000: skip_cow = true; break;
         case 1001: selected_partitions = parse_partition_list(optarg); break;
@@ -317,25 +288,8 @@ int main(int argc, char** argv) {
         if (list_all_mode) {
             for (uint32_t s = 0; s <= 1; ++s) {
                 auto metadata = ReadMetadata(device_path, s);
-                if (!metadata) {
-                    std::cerr << "Failed to read metadata for slot " << s << std::endl;
-                    continue;
-                }
-                bool has_active = false;
-                for (const auto& part : metadata->partitions) {
-                    uint64_t total = 0;
-                    for (size_t i = 0; i < part.num_extents; ++i)
-                        total += metadata->extents[part.first_extent_index + i].num_sectors;
-                    if (total > 0) {
-                        has_active = true;
-                        break;
-                    }
-                }
-                if (!has_active) {
-                    std::cout << "Slot " << s << " has no active partitions (empty slot)." << std::endl;
-                    continue;
-                }
-                list_partitions(metadata, s);
+                if (metadata) list_partitions(metadata, s);
+                else std::cerr << "Failed to read metadata for slot " << s << std::endl;
             }
         } else {
             uint32_t slot_num = (slot >= 0) ? static_cast<uint32_t>(slot) : static_cast<uint32_t>(get_current_slot());
@@ -351,10 +305,8 @@ int main(int argc, char** argv) {
 
     if (!mountdir.empty()) execute = true;
 
-    // Convert relative outdir to absolute
-    std::string abs_outdir = make_absolute_path(outdir);
-    if (mkdir(abs_outdir.c_str(), 0755) != 0 && errno != EEXIST) {
-        std::cerr << "Warning: Could not create directory " << abs_outdir << std::endl;
+    if (mkdir(outdir.c_str(), 0755) != 0 && errno != EEXIST) {
+        std::cerr << "Warning: Could not create directory " << outdir << std::endl;
     }
 
     uint32_t slot_num = (slot >= 0) ? static_cast<uint32_t>(slot) : static_cast<uint32_t>(get_current_slot());
@@ -366,24 +318,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Build list of active partitions (size > 0)
-    std::set<std::string> active_names;
+    std::set<std::string> available_names;
     for (const auto& part : metadata->partitions) {
         std::string name = part.name;
         if (skip_cow && is_cow_partition(name)) continue;
-        uint64_t total_sectors = 0;
-        for (size_t i = 0; i < part.num_extents; ++i)
-            total_sectors += metadata->extents[part.first_extent_index + i].num_sectors;
-        if (total_sectors == 0) continue;
-        active_names.insert(name);
+        available_names.insert(name);
     }
 
     if (!selected_partitions.empty()) {
         std::set<std::string> missing;
         for (const auto& req : selected_partitions)
-            if (active_names.find(req) == active_names.end()) missing.insert(req);
+            if (available_names.find(req) == available_names.end()) missing.insert(req);
         if (!missing.empty()) {
-            std::cerr << "Error: Requested partitions not active in slot " << slot_num << ":";
+            std::cerr << "Error: Requested partitions not in slot " << slot_num << ":";
             for (const auto& m : missing) std::cerr << " " << m;
             std::cerr << std::endl;
             return 1;
@@ -403,20 +350,22 @@ int main(int argc, char** argv) {
         }
     }
 
+    // For script generation, collect succeeded mounts and devices
     std::vector<std::string> mounted_points;
     std::vector<std::string> created_devices;
-    std::set<std::string> rw_mounted_devices;
+    std::set<std::string> rw_mounted_devices; // track devices mounted RW
 
     int success_count = 0, fail_count = 0;
 
+    // If dry-run, we'll generate a shell script with all commands
     std::ofstream dryrun_script;
     if (dry_run) {
-        std::string script_path = abs_outdir + "/mount_all.sh";
+        std::string script_path = outdir + "/mount_all.sh";
         dryrun_script.open(script_path);
         if (dryrun_script.is_open()) {
             dryrun_script << "#!/system/bin/sh\n";
             dryrun_script << "# Auto-generated script to create and mount dynamic partitions\n";
-            dryrun_script << "# Generated by mount_dynamic_partitions " << VERSION << "\n\n";
+            dryrun_script << "# Generated by mount_dynamic_partitions\n\n";
             dryrun_script << "set -e\n\n";
             dryrun_script << "DMCTL=" << dmctl_path << "\n\n";
         } else {
@@ -424,29 +373,15 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::string abs_mountdir;
-    if (!mountdir.empty()) {
-        abs_mountdir = make_absolute_path(mountdir);
-    }
-
     for (const auto& part : metadata->partitions) {
         std::string orig_name = part.name;
         if (skip_cow && is_cow_partition(orig_name)) continue;
         if (!selected_partitions.empty() && selected_partitions.find(orig_name) == selected_partitions.end()) continue;
 
-        uint64_t total_sectors = 0;
-        for (size_t i = 0; i < part.num_extents; ++i)
-            total_sectors += metadata->extents[part.first_extent_index + i].num_sectors;
-        if (total_sectors == 0) {
-            std::cerr << "Skipping inactive partition: " << orig_name << std::endl;
-            continue;
-        }
-
         std::string dm_name = prefix + orig_name;
         bool read_only = !read_write && ((part.attributes & LP_PARTITION_ATTR_READONLY) != 0);
-        // If --rw is given, we force read_only = false regardless of attribute
-        if (read_write) read_only = false;
 
+        // Check for multiple RW mounts
         if (!read_only && !force_multi_rw && rw_mounted_devices.find(dm_name) != rw_mounted_devices.end()) {
             std::cerr << "Warning: Device " << dm_name << " already mounted read-write. Skipping additional RW mount." << std::endl;
             continue;
@@ -457,6 +392,7 @@ int main(int argc, char** argv) {
             extents.push_back(&metadata->extents[part.first_extent_index + i]);
         if (extents.empty()) continue;
 
+        // Build dmctl config file content
         std::string content;
         std::string cmd = "create " + dm_name;
         if (read_only) cmd += " -ro";
@@ -484,7 +420,7 @@ int main(int argc, char** argv) {
             logical_start += ext->num_sectors;
         }
 
-        std::string filename = abs_outdir + "/dmctl_" + orig_name + ".txt";
+        std::string filename = outdir + "/dmctl_" + orig_name + ".txt";
         std::ofstream ofs(filename);
         if (!ofs) {
             std::cerr << "Error: Cannot write to " << filename << std::endl;
@@ -495,6 +431,7 @@ int main(int argc, char** argv) {
         ofs.close();
         std::cerr << "Created: " << filename << std::endl;
 
+        // Write to dry-run script if active
         if (dryrun_script.is_open()) {
             dryrun_script << "\n# Logical device: " << orig_name << "\n";
             dryrun_script << "cat > " << filename << " << 'EOF'\n";
@@ -506,6 +443,8 @@ int main(int argc, char** argv) {
             bool device_existed = false;
             if (!dry_run) {
                 device_existed = device_exists(dm_name);
+            } else {
+                device_existed = false;
             }
 
             if (device_existed) {
@@ -533,10 +472,11 @@ int main(int argc, char** argv) {
             }
 
             if (!device_existed) created_devices.push_back(dm_name);
+
             success_count++;
 
-            if (!abs_mountdir.empty()) {
-                std::string mount_point = abs_mountdir + "/" + orig_name;
+            if (!mountdir.empty()) {
+                std::string mount_point = mountdir + "/" + orig_name;
                 bool mount_success = false;
                 if (dry_run) {
                     std::cerr << "DRY RUN: Would mount " << dm_name << " on " << mount_point << " (" << (read_only ? "ro" : "rw") << ")" << std::endl;
@@ -573,24 +513,14 @@ int main(int argc, char** argv) {
     if (dryrun_script.is_open()) {
         dryrun_script << "\necho \"All operations completed.\"\n";
         dryrun_script.close();
-        chmod((abs_outdir + "/mount_all.sh").c_str(), 0755);
-        std::cerr << "Generated executable script: " << abs_outdir << "/mount_all.sh" << std::endl;
+        chmod((outdir + "/mount_all.sh").c_str(), 0755);
+        std::cerr << "Generated executable script: " << outdir << "/mount_all.sh" << std::endl;
     }
 
+    // Generate unmount and remove scripts if requested (even in dry-run)
     if (!gen_scripts_prefix.empty()) {
-        std::string script_base;
-        if (gen_scripts_prefix[0] == '/') {
-            script_base = gen_scripts_prefix;
-        } else {
-            script_base = abs_outdir + "/" + gen_scripts_prefix;
-        }
-        size_t last_slash = script_base.find_last_of('/');
-        if (last_slash != std::string::npos) {
-            std::string dir_part = script_base.substr(0, last_slash);
-            mkdir(dir_part.c_str(), 0755);
-        }
-        std::string umount_script = script_base + "_umount.sh";
-        std::string remove_script = script_base + "_remove.sh";
+        std::string umount_script = gen_scripts_prefix + "_umount.sh";
+        std::string remove_script = gen_scripts_prefix + "_remove.sh";
 
         std::ofstream umount_fs(umount_script);
         if (umount_fs.is_open()) {
@@ -630,8 +560,7 @@ int main(int argc, char** argv) {
         std::cerr << "Execution results: " << success_count << " succeeded, " << fail_count << " failed." << std::endl;
         return (fail_count > 0 && !dry_run) ? 1 : 0;
     } else {
-        std::cerr << "Config files written to " << abs_outdir << std::endl;
+        std::cerr << "Config files written to " << outdir << std::endl;
         return 0;
     }
 }
-
