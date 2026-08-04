@@ -1,6 +1,4 @@
 
-**CAUTION: This repository is still initial work in progress**
-
 Purpose
 =======
 
@@ -8,9 +6,7 @@ The source files in this repository can be used to create the Android program **
 
 **mount_dynamic_partitions** reads the information from a super partition on a phone running the Android OS and creates input files for **dmctl** to create logical devices for the dynamic partitions in the super partition.
 
-The standard dynamic partitions in Android for “/”, “/vendor”, etc. are always mounted as read-only, so no files can be modified in these partitions (not even root can do this).
-
-However, additional logical devices for the dynamic partitions can be mounted in read/write mode, making it possible to modify files in the dynamic partitions.
+**mount_dynamic_partitions** allows you to mount dynamic partitions while the smartphone is booted into a recovery that supports connections via **adb**  but does not offer this feature—such as the recovery from the  **LineageOS**.
 
 ----
 
